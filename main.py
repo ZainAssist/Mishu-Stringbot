@@ -1,291 +1,358 @@
-#This string bot is made by Zainu #
-#Please don't remove any credit 😔#
-#Kindly join @About_Zain #
-#https://github.com/RishuBot/Mishu-String#
-
-
-
-
-
-import os
-import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, CallbackQuery
-from pyrogram.enums import ChatAction
-from pyrogram.errors import UserNotParticipant
 import requests
-import time
-from bs4 import BeautifulSoup
-from flask import Flask
-from threading import Thread
-from pyrogram.errors import FloodWait
-import pymongo
-import re
-from typing import Optional
-import random
-
-# Bot details from environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Environment variable se token le raha hai #Your bot token 
-CHANNEL_USERNAME = "About_Zain"  # Channel username
-GROUP_USERNAME = "MusicOnMasti"  # Group username
-API_HASH = "cdb49c92e3d8f2e51152c813dcfe15be"
-API_ID = "26467271"
-
-ADMIN_ID = int(os.getenv("ADMIN_ID", "7860277015"))  # Admin ID for new user notifications
-
-# Flask app for monitoring
-flask_app = Flask(__name__)
-start_time = time.time()
-
-# MongoDB setup
-mongo_client = pymongo.MongoClient(
-    os.getenv(
-        "MONGO_URL","Mango db url dalooo"
-    )
+import asyncio
+from asyncio.exceptions import TimeoutError
+from pyrogram import Client, filters
+from pyrogram.enums import ParseMode, ChatType
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from pyrogram.errors import (
+    ApiIdInvalid,
+    PhoneNumberInvalid,
+    PhoneCodeInvalid,
+    PhoneCodeExpired,
+    SessionPasswordNeeded,
+    PasswordHashInvalid
 )
-db = mongo_client[os.getenv("MONGO_DB_NAME", "Mishu-free-db")]
-users_collection = db[os.getenv("MONGO_COLLECTION_NAME", "users")]
+from telethon.errors import (
+    ApiIdInvalidError,
+    PhoneNumberInvalidError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+    SessionPasswordNeededError,
+    PasswordHashInvalidError
+)
+from config import (
+    API_ID,
+    API_HASH,
+    BOT_TOKEN
+)
 
-# Pyrogram bot client
-app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Constants for timeouts
+TIMEOUT_OTP = 600  # 10 minutes
+TIMEOUT_2FA = 300  # 5 minutes
 
+session_data = {}
 
-@flask_app.route('/')
-def home():
-    uptime_minutes = (time.time() - start_time) / 60
-    user_count = users_collection.count_documents({})
-    return f"Bot uptime: {uptime_minutes:.2f} minutes\nUnique users: {user_count}"
+def setup_string_handler(app: Client):
+    @app.on_message(filters.command(["pyro", "tele"], prefixes=["/", ".", ",", "!"]) & (filters.private | filters.group))
+    async def session_setup(client, message: Message):
+        if message.chat.type in (ChatType.SUPERGROUP, ChatType.GROUP):
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="**❌ String Session Generator Only Works In Private Chats**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        platform = "PyroGram" if message.command[0] == "pyro" else "Telethon"
+        await handle_start(client, message, platform)
 
+    @app.on_callback_query(filters.regex(r"^session_start_"))
+    async def callback_query_start_handler(client, callback_query):
+        await handle_callback_query(client, callback_query)
 
-@app.on_message(filters.command("start"))
-async def start_message(client, message):
-    user_id = message.from_user.id
-    user = message.from_user
-    # Simulate progress
-    baby = await message.reply_text("[□□□□□□□□□□] 0%")
+    @app.on_callback_query(filters.regex(r"^session_restart_"))
+    async def callback_query_restart_handler(client, callback_query):
+        await handle_callback_query(client, callback_query)
 
-    # Simulate progress bar updates
-    progress = [
-        "[■□□□□□□□□□] 10%", "[■■□□□□□□□□] 20%", "[■■■□□□□□□□] 30%", "[■■■■□□□□□□] 40%",
-        "[■■■■■□□□□□] 50%", "[■■■■■■□□□□] 60%", "[■■■■■■■□□□] 70%", "[■■■■■■■■□□] 80%",
-        "[■■■■■■■■■□] 90%", "[■■■■■■■■■■] 100%"
-    ]
-    for i, step in enumerate(progress):
-        await baby.edit_text(f"**{step}**")
-        await asyncio.sleep(0.3)  # Adjust delay for progress updates
+    @app.on_callback_query(filters.regex(r"^session_close$"))
+    async def callback_query_close_handler(client, callback_query):
+        await handle_callback_query(client, callback_query)
 
-    # After progress bar reaches 100%, send welcome message
-    await baby.edit_text("**❖ 💘Mishu-Zainu💘...**")
-    await asyncio.sleep(1)
-    await baby.delete()
+    @app.on_message(filters.text & filters.create(lambda _, __, message: message.chat.id in session_data))
+    async def text_handler(client, message: Message):
+        await handle_text(client, message)
 
-    # Check if the user is a member of both channels
-    if not (await is_user_in_channel(client, user_id, CHANNEL_USERNAME) and
-            await is_user_in_group(client, user_id, GROUP_USERNAME)):
-        await send_join_prompt(client, message.chat.id)
-        return
-
-    # Check if user is new
-    if users_collection.count_documents({'user_id': user_id}) == 0:
-        users_collection.insert_one({'user_id': user_id})
-        # Notify admin about new user
-        await client.send_message(
-            chat_id=ADMIN_ID,
-            text=(f"╔═══ ⋆ʟᴏᴠᴇ ᴡɪᴛʜ⋆ ══╗\n\n💡 **New User Alert**:\n\n"
-                  f"👤 **User:** {message.from_user.mention}\n\n"
-                  f"🆔 **User ID:** {user_id}\n\n"
-                  f"📊 **Total Users:** {users_collection.count_documents({})}\n\n╚═════ ⋆★⋆ ═════╝")
-        )
-
-    # Random image selection
-    image_urls = [
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg"
-    ]
-    random_image = random.choice(image_urls)
-
-    # Inline buttons for channel join and help
-    join_button_1 = InlineKeyboardButton("˹sυᴘᴘσꝛᴛ˼", url="https://t.me/+u7vfH3h-zNMzODZl")
-    join_button_2 = InlineKeyboardButton("˹ᴅєᴠєʟσᴘєꝛ˼", url="https://t.me/Uff_Zainu")
-    music_button = InlineKeyboardButton("˹ϻυsɪᴄ˼", url="https://t.me/MusicOnMasti")
-    repo_button = InlineKeyboardButton("˹ ʀєᴘσ ˼", url="https://github.com/ZainAssist/Mishu-Stringbot")
-    help_button = InlineKeyboardButton(" ˹ ɢєηєꝛᴧᴛє sᴛꝛɪηɢ ˼", callback_data="help_section")
-
-    markup = InlineKeyboardMarkup([[help_button],[join_button_1,join_button_2],[music_button,repo_button]])
-
-    # Send the welcome message with the random image
-    await client.send_photo(
-        chat_id=message.chat.id,
-        photo=random_image,
-        caption=(f"""**┌────── ˹ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ˼──────•
-┆◍ ʜᴇʏ {user.mention} 
-└──────────────────────•
- ✦ ɪ'ᴍ ᴀ sᴛʀɪɴɢ ɢᴇɴᴇʀᴀᴛᴇ ʙᴏᴛ.
- ✦ ʏᴏᴜ ᴄᴀɴ ᴜsᴇ ɢᴇɴᴇʀᴀᴛᴇ sᴇssɪᴏɴ.
- ✦ 𝛅ᴜᴘᴘᴏʀᴛ - ᴘʏʀᴏɢʀᴀᴍ | ᴛᴇʟᴇᴛʜᴏɴ.
- ✦ ηᴏ ɪᴅ ʟᴏɢ ᴏᴜᴛ ɪssᴜᴇ.
-
-•──────────────────────•
- ❖ 𝐏ᴏᴡᴇʀᴇᴅ ʙʏ  :-  [˹ᴢᴀɪɴ](https://t.me/About_Zain) ❤️‍🔥
-•──────────────────────•**"""),
-        reply_markup=markup
-    )
-
-
-@app.on_callback_query(filters.regex("help_section"))
-async def help_callback(client, callback_query: CallbackQuery):
-    # Mini Web App buttons for session string generators
-    mini_web_button_telethon = InlineKeyboardButton(
-        "ᴛєʟєᴛʜση",
-        web_app=WebAppInfo(url="https://telegram.tools/session-string-generator#telethon,user")
-    )
-    mini_web_button_pyrogram = InlineKeyboardButton(
-        "ᴘʏꝛσɢꝛᴧϻ",
-        web_app=WebAppInfo(url="https://telegram.tools/session-string-generator#pyrogram,user")
-    )
-    mini_web_button_dez = InlineKeyboardButton(
-        " ɢꝛᴧϻ ᴊs ",
-        web_app=WebAppInfo(url="https://telegram.tools/session-string-generator#gramjs,user")
-    )
-    mini_web_button_cute = InlineKeyboardButton(
-        " ϻᴛ ᴄυᴛє ",
-        web_app=WebAppInfo(url="https://telegram.tools/session-string-generator#mtcute,user")
-    )
-
-    back_button = InlineKeyboardButton(" ˹ ʙᴧᴄᴋ ˼ ", callback_data="back_to_welcome")
-
-    markup = InlineKeyboardMarkup([
-        [mini_web_button_telethon,mini_web_button_pyrogram],
-        [mini_web_button_dez,mini_web_button_cute],
-        [back_button]
-    ])
-
-    help_message = "💡**ʜᴇʀᴇ ɪs ᴛʜᴇ ᴛᴇʟᴇɢʀᴀᴍ ᴛᴏᴏʟs ᴍᴇᴛʜᴏᴅ.**\n\n**☞︎︎︎ ᴘʟᴇᴀsᴇ ᴄʜᴏᴏsᴇ ᴛʜᴇ ʟɪʙʀᴀʀʏ **\n\n**➻ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇɴᴇʀᴀᴛᴇ sᴛʀɪɴɢ sᴇssɪᴏɴ**"
-    await callback_query.message.edit_text(
-        help_message,
-        reply_markup=markup
-    )
-
-
-@app.on_callback_query(filters.regex("back_to_welcome"))
-async def back_to_welcome(client, callback_query: CallbackQuery):
-    user = callback_query.from_user
-
-    image_urls = [
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg",
-        "https://graph.org/file/d07dc208eaba21e922685-98f83a2138c89476d4.jpg"
-    ]
-    random_image = random.choice(image_urls)
-
-    join_button_1 = InlineKeyboardButton("˹sυᴘᴘσꝛᴛ˼", url="https://t.me/+u7vfH3h-zNMzODZl")
-    join_button_2 = InlineKeyboardButton("˹ᴅєᴠєʟσᴘєꝛ˼", url="https://t.me/Uff_Zainu")
-    music_button = InlineKeyboardButton("˹ϻυsɪᴄ˼", url="https://t.me/MusicOnMasti")
-    repo_button = InlineKeyboardButton("˹ʀєᴘσ˼", url="https://github.com/RishuBot/Mishu-Stringbot")
-    help_button = InlineKeyboardButton("˹ ɢєηєꝛᴧᴛє sᴛꝛɪηɢ ˼", callback_data="help_section")
-
-    markup = InlineKeyboardMarkup([[help_button],[join_button_1,join_button_2],[music_button,repo_button]])
-
-    await callback_query.message.edit_text(
-        text=(f"""**┌────── ˹ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ˼──────•
-┆◍ ʜᴇʏ {user.mention} 
-└──────────────────────•
- ✦ ɪ'ᴍ ᴀ sᴛʀɪɴɢ ɢᴇɴᴇʀᴀᴛᴇ ʙᴏᴛ.
- ✦ ʏᴏᴜ ᴄᴀɴ ᴜsᴇ ɢᴇɴᴇʀᴀᴛᴇ sᴇssɪᴏɴ.
- ✦ 𝛅ᴜᴘᴘᴏʀᴛ - ᴘʏʀᴏɢʀᴀᴍ | ᴛᴇʟᴇᴛʜᴏɴ.
- ✦ ηᴏ ɪᴅ ʟᴏɢ ᴏᴜᴛ ɪssᴜᴇ 
-
-•──────────────────────•
- ❖ 𝐏ᴏᴡᴇʀᴇᴅ ʙʏ  :-  [˹ᴢᴀɪɴ˼](https://t.me/About_Zain) ❤️‍🔥
-•──────────────────────•**"""),
-        reply_markup=markup
-    )
-
-
-async def is_user_in_channel(client, user_id, channel_username):
-    """Check if the user is a member of the specified channel."""
-    try:
-        await client.get_chat_member(channel_username, user_id)
-        return True
-    except UserNotParticipant:
-        return False
-    except Exception as e:
-        print(f"Error checking membership: {e}")
-        return False
-
-
-async def send_join_prompt(client, chat_id):
-    """Send a message asking the user to join both channels."""
-    join_button_1 = InlineKeyboardButton("♡ Join ♡", url=f"https://t.me/{CHANNEL_USERNAME}")
-    join_button_2 = InlineKeyboardButton("♡ Join ♡", url=f"https://t.me/{GROUP_USERNAME}")
-    markup = InlineKeyboardMarkup([[join_button_1], [join_button_2]])
+async def handle_start(client, message, platform):
+    session_type = "Telethon" if platform == "Telethon" else "Pyrogram"
+    session_data[message.chat.id] = {"type": session_type}
     await client.send_message(
-        chat_id,
-        "♡ You need to join both channels to use this bot.. ♡",
-        reply_markup=markup,
+        chat_id=message.chat.id,
+        text=(
+            f"**💥Welcome to the {session_type} session setup!**\n"
+            "**━━━━━━━━━━━━━━━━━**\n"
+            "**This is a totally safe session string generator. We don't save any info that you will provide, so this is completely safe.**\n\n"
+            "**Note: Don't send OTP directly. Otherwise, your account could be banned, or you may not be able to log in.**"
+        ),
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Start", callback_data=f"session_start_{session_type.lower()}"),
+            InlineKeyboardButton("Close", callback_data="session_close")
+        ]]),
+        parse_mode=ParseMode.MARKDOWN
     )
 
+async def handle_callback_query(client, callback_query):
+    data = callback_query.data
+    chat_id = callback_query.message.chat.id
 
-@app.on_message(filters.command("broadcast") & filters.user(7860277015))
-async def broadcast_message(client, message):
-    """Broadcast a message (text, photo, video, etc.) to all users."""
-    if not (message.reply_to_message or len(message.command) > 1):
-        await message.reply_text(
-            "Please reply to a message or provide text to broadcast.\n\nUsage:\n"
-            "/broadcast Your message here\nOR\nReply to any media with /broadcast"
+    if data == "session_close":
+        platform = session_data.get(chat_id, {}).get("type", "").lower()
+        if platform == "pyrogram":
+            await callback_query.message.edit_text("**❌Cancelled. You can start by sending /pyro**", parse_mode=ParseMode.MARKDOWN)
+        elif platform == "telethon":
+            await callback_query.message.edit_text("**❌Cancelled. You can start by sending /tele**", parse_mode=ParseMode.MARKDOWN)
+        if chat_id in session_data:
+            del session_data[chat_id]
+        return
+
+    if data.startswith("session_start_"):
+        session_type = data.split('_')[2]
+        await callback_query.message.edit_text(
+            "**Send Your API ID**",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Restart", callback_data=f"session_restart_{session_type}"),
+                InlineKeyboardButton("Close", callback_data="session_close")
+            ]]),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        session_data[chat_id]["stage"] = "api_id"
+
+    if data.startswith("session_restart_"):
+        session_type = data.split('_')[2]
+        await handle_start(client, callback_query.message, platform=session_type.capitalize())
+
+async def handle_text(client, message: Message):
+    chat_id = message.chat.id
+    if chat_id not in session_data:
+        return
+
+    session = session_data[chat_id]
+    stage = session.get("stage")
+
+    if stage == "api_id":
+        try:
+            api_id = int(message.text)
+            session["api_id"] = api_id
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="**Send Your API Hash**",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"),
+                    InlineKeyboardButton("Close", callback_data="session_close")
+                ]]),
+                parse_mode=ParseMode.MARKDOWN 
+            )
+            session["stage"] = "api_hash"
+        except ValueError:
+            await client.send_message(
+                chat_id=message.chat.id,
+                text="**❌Invalid API ID. Please enter a valid integer.**"
+            )
+
+    elif stage == "api_hash":
+        session["api_hash"] = message.text
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="** Send Your Phone Number\n[Example: +880xxxxxxxxxx] **",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"),
+                InlineKeyboardButton("Close", callback_data="session_close")
+            ]]),
+            parse_mode=ParseMode.MARKDOWN 
+        )
+        session["stage"] = "phone_number"
+
+    elif stage == "phone_number":
+        session["phone_number"] = message.text
+        otp_message = await client.send_message(
+            chat_id=message.chat.id,
+            text="**💥Sending OTP Check PM.....**"
+        )
+        await send_otp(client, message, otp_message)
+
+    elif stage == "otp":
+        otp = ''.join([char for char in message.text if char.isdigit()])
+        session["otp"] = otp
+        otp_message = await client.send_message(
+            chat_id=message.chat.id,
+            text="**💥Validating Your Inputed OTP.....**"
+        )
+        await validate_otp(client, message, otp_message)
+
+    elif stage == "2fa":
+        session["password"] = message.text
+        await validate_2fa(client, message)
+
+async def send_otp(client, message, otp_message):
+    session = session_data[message.chat.id]
+    api_id = session["api_id"]
+    api_hash = session["api_hash"]
+    phone_number = session["phone_number"]
+    telethon = session["type"] == "Telethon"
+
+    if telethon:
+        client_obj = TelegramClient(StringSession(), api_id, api_hash)
+    else:
+        client_obj = Client(":memory:", api_id, api_hash)
+
+    await client_obj.connect()
+
+    try:
+        if telethon:
+            code = await client_obj.send_code_request(phone_number)
+        else:
+            code = await client_obj.send_code(phone_number)
+        session["client_obj"] = client_obj
+        session["code"] = code
+        session["stage"] = "otp"
+        
+        # Start a timeout task for OTP expiry
+        asyncio.create_task(handle_otp_timeout(client, message))
+
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="**✅Send The OTP as text. Please send a text message embedding the OTP like: 'AB5 CD0 EF3 GH7 IJ6'**",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"),
+                InlineKeyboardButton("Close", callback_data="session_close")
+            ]]),
+            parse_mode=ParseMode.MARKDOWN 
+        )
+        await otp_message.delete()
+    except (ApiIdInvalid, ApiIdInvalidError):
+        await client.send_message(
+            chat_id=message.chat.id,
+            text='**❌ `API_ID` and `API_HASH` combination is invalid**',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"), InlineKeyboardButton("Close", callback_data="session_close")]
+            ])
+        )
+        await otp_message.delete()
+        return
+    except (PhoneNumberInvalid, PhoneNumberInvalidError):
+        await client.send_message(
+            chat_id=message.chat.id,
+            text='**❌`PHONE_NUMBER` is invalid.**',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"), InlineKeyboardButton("Close", callback_data="session_close")]
+            ])
+        )
+        await otp_message.delete()
+        return
+
+async def handle_otp_timeout(client, message):
+    await asyncio.sleep(TIMEOUT_OTP)
+    if message.chat.id in session_data and session_data[message.chat.id].get("stage") == "otp":
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="**❌ Bro Your OTP Has Expired**",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        del session_data[message.chat.id]
+
+async def validate_otp(client, message, otp_message):
+    session = session_data[message.chat.id]
+    client_obj = session["client_obj"]
+    phone_number = session["phone_number"]
+    otp = session["otp"]
+    code = session["code"]
+    telethon = session["type"] == "Telethon"
+
+    try:
+        if telethon:
+            await client_obj.sign_in(phone_number, otp)
+        else:
+            await client_obj.sign_in(phone_number, code.phone_code_hash, otp)
+        await generate_session(client, message)
+        await otp_message.delete()
+    except (PhoneCodeInvalid, PhoneCodeInvalidError):
+        await client.send_message(
+            chat_id=message.chat.id,
+            text='**❌Bro Your OTP Is Wrong**',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"), InlineKeyboardButton("Close", callback_data="session_close")]
+            ])
+        )
+        await otp_message.delete()
+        return
+    except (PhoneCodeExpired, PhoneCodeExpiredError):
+        await client.send_message(
+            chat_id=message.chat.id,
+            text='**❌Bro OTP Has expired**',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"), InlineKeyboardButton("Close", callback_data="session_close")]
+            ])
+        )
+        await otp_message.delete()
+        return
+    except (SessionPasswordNeeded, SessionPasswordNeededError):
+        session["stage"] = "2fa"
+        
+        # Start a timeout task for 2FA expiry
+        asyncio.create_task(handle_2fa_timeout(client, message))
+        
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="**❌ 2FA Is Required To Login. Please Enter 2FA**",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"),
+                InlineKeyboardButton("Close", callback_data="session_close")
+            ]]),
+            parse_mode=ParseMode.MARKDOWN 
+        )
+        await otp_message.delete()
+
+async def handle_2fa_timeout(client, message):
+    await asyncio.sleep(TIMEOUT_2FA)
+    if message.chat.id in session_data and session_data[message.chat.id].get("stage") == "2fa":
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="**❌ Bro Your 2FA Input Has Expired**",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        del session_data[message.chat.id]
+
+async def validate_2fa(client, message):
+    session = session_data[message.chat.id]
+    client_obj = session["client_obj"]
+    password = session["password"]
+    telethon = session["type"] == "Telethon"
+
+    try:
+        if telethon:
+            await client_obj.sign_in(password=password)
+        else:
+            await client_obj.check_password(password=password)
+        await generate_session(client, message)
+    except (PasswordHashInvalid, PasswordHashInvalidError):
+        await client.send_message(
+            chat_id=message.chat.id,
+            text='**❌Invalid Password Provided**',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Restart", callback_data=f"session_restart_{session['type'].lower()}"), InlineKeyboardButton("Close", callback_data="session_close")]
+            ])
         )
         return
 
-    broadcast_content = message.reply_to_message if message.reply_to_message else message
-    users = users_collection.find()
-    sent_count = 0
-    failed_count = 0
+async def generate_session(client, message):
+    session = session_data[message.chat.id]
+    client_obj = session["client_obj"]
+    telethon = session["type"] == "Telethon"
 
-    await message.reply_text("Starting the broadcast...")
+    if telethon:
+        string_session = client_obj.session.save()
+    else:
+        string_session = await client_obj.export_session_string()
 
-    for user in users:
-        try:
-            user_id = user["user_id"]
+    text = f"**{session['type'].upper()} SESSION FROM Smart Tool**:\n\n`{string_session}`\n\nGenerated by @MishuSessionbot"
 
-            if broadcast_content.photo:
-                await client.send_photo(
-                    chat_id=user_id,
-                    photo=broadcast_content.photo.file_id,
-                    caption=broadcast_content.caption or ""
-                )
-            elif broadcast_content.video:
-                await client.send_video(
-                    chat_id=user_id,
-                    video=broadcast_content.video.file_id,
-                    caption=broadcast_content.caption or ""
-                )
-            elif broadcast_content.document:
-                await client.send_document(
-                    chat_id=user_id,
-                    document=broadcast_content.document.file_id,
-                    caption=broadcast_content.caption or ""
-                )
-            elif broadcast_content.text:
-                await client.send_message(
-                    chat_id=user_id,
-                    text=broadcast_content.text
-                )
-            sent_count += 1
-        except FloodWait as e:
-            print(f"FloodWait encountered for {e.value} seconds.")
-            time.sleep(e.value)
-        except Exception as e:
-            print(f"Failed to send message to {user_id}: {e}")
-            failed_count += 1
+    try:
+        await client_obj.send_message("me", text)
+    except KeyError:
+        pass
 
-    await message.reply_text(
-        f"Broadcast completed!\n\nMessages sent: {sent_count}\nFailed deliveries: {failed_count}"
+    await client_obj.disconnect()
+    await client.send_message(
+        chat_id=message.chat.id,
+        text="**This string has been saved ✅ in your Saved Messages**",
+        parse_mode=ParseMode.MARKDOWN
     )
+    del session_data[message.chat.id]
 
+# Initialize the Pyrogram Client
+app = Client("sessionstring", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-if __name__ == "__main__":
-    Thread(target=lambda: flask_app.run(host="0.0.0.0", port=8080)).start()
-    app.run()
+setup_string_handler(app)
+
+app.run()
