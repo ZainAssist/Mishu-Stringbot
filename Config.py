@@ -1,13 +1,4 @@
-from os import getenv
-from dotenv import load_dotenv
-
-load_dotenv()
-
-API_ID = int(getenv("API_ID","21989865"))
-API_HASH = getenv("API_HASH","90e5e665feb30e647bef49884cc006u15")
-
-BOT_TOKEN = getenv("BOT_TOKEN")
-OWNER_ID = int(getenv("OWNER_ID","6048907378"))
-
-MONGO_DB_URI = getenv("mongodb+srv://zainu:1234567890@cluster0.c12d3ih.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-MUST_JOIN = getenv("MUST_JOIN","About_Zain")
+# Replace these with your actual API details
+API_ID = "28xxxx10"  # Replace with your API ID Get From my.telegram.org
+API_HASH = "7fc5b356924ghfgggv481ab5eca3"  # Replace with your API Hash Get From my.telegram.org
+BOT_TOKEN = "7824jjhhmd3gjq8qddzhyL0"  # Replace with your Bot Token Get From @BotFather 
