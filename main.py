@@ -28,8 +28,8 @@ import random
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # Environment variable se token le raha hai #Your bot token 
 CHANNEL_USERNAME = "About_Zain"  # Channel username
 GROUP_USERNAME = "MusicOnMasti"  # Group username
-API_HASH = "42a60d9c657b106370c79bb0a8ac560c"
-API_ID = "14050586"
+API_HASH = "cdb49c92e3d8f2e51152c813dcfe15be"
+API_ID = "26467271"
 
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7860277015"))  # Admin ID for new user notifications
 
