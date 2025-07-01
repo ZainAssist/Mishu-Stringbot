@@ -1,10 +1,5 @@
-Flask
-pymongo
 pyrogram
+telethon
+asyncio
 requests
-pycryptodome
-TgCrypto
-ffprobe
-httpx
-beautifulsoup4
-validators
+tgcrypto
