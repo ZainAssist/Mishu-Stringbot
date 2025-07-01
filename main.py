@@ -110,7 +110,7 @@ async def start_message(client, message):
     join_button_1 = InlineKeyboardButton("˹sυᴘᴘσꝛᴛ˼", url="https://t.me/+u7vfH3h-zNMzODZl")
     join_button_2 = InlineKeyboardButton("˹ᴅєᴠєʟσᴘєꝛ˼", url="https://t.me/Uff_Zainu")
     music_button = InlineKeyboardButton("˹ϻυsɪᴄ˼", url="https://t.me/MusicOnMasti")
-    repo_button = InlineKeyboardButton("˹ ʀєᴘσ ˼", url="https://github.com/ZainAssist/Mishu-String")
+    repo_button = InlineKeyboardButton("˹ ʀєᴘσ ˼", url="https://github.com/ZainAssist/Mishu-Stringbot")
     help_button = InlineKeyboardButton(" ˹ ɢєηєꝛᴧᴛє sᴛꝛɪηɢ ˼", callback_data="help_section")
 
     markup = InlineKeyboardMarkup([[help_button],[join_button_1,join_button_2],[music_button,repo_button]])
