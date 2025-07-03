@@ -1,5 +1,7 @@
-pyrogram
-telethon
-asyncio
-requests
-tgcrypto
+python-dotenv
+SQLAlchemy
+psycopg2
+Telethon
+pyrotgfork
+TgCrypto
+uvloop
